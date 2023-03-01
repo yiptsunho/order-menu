@@ -3,6 +3,10 @@ from flask_restful import Api, Resource, reqparse, abort
 import pymongo
 from bson.json_util import dumps, loads
 from passlib.hash import pbkdf2_sha256
+import jwt
+import datetime
+
+SECRET_KEY = "\x190\x8f\xe6 \x07\xcf\xc7\xb3@\x02\xfd\x17\x7f \x98\xe1\x83|\x8c|\xde\xd5B"
 
 app = Flask(__name__)
 api = Api(app)
@@ -11,13 +15,38 @@ client = pymongo.MongoClient("mongodb+srv://yiptsunho:JAn3ebgbGLrTX46r@order.os3
 myDb = client["order-menu"]
 item_table = myDb["item"]
 user_table = myDb['user']
+menu_table = myDb['menu']
 # TODO: create unfinished APIs, use builder concept, apply validation, breakdown into different files, remove unncessary comments
+def generate_access_token(_id):
+    payload = {
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=0, seconds=5),
+            'iat': datetime.datetime.utcnow(),
+            'sub': _id
+        }
+    return jwt.encode(payload, 'SECRET_KEY', algorithm='HS256')
+
+def generate_refresh_token(_id):
+    payload = {
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=0, seconds=10),
+            'iat': datetime.datetime.utcnow(),
+            'sub': _id
+        }
+    return jwt.encode(payload, 'SECRET_KEY', algorithm='HS256')
+
+def validate_token(token):
+    try:
+        payload = jwt.decode(token, 'SECRET_KEY')
+        return payload['sub']
+    except jwt.ExpiredSignatureError:
+        return 'Expired'
+    except jwt.InvalidTokenError:
+        return 'Invalid'
 
 # user API
 @app.route("/api/v1/login", methods=['POST'])
 def login():
     user = {
-        "_id": request.get_json()['name'],
+        "_id": request.get_json()['username'],
         "password": request.get_json()['password']
     }
     userExists = user_table.find_one(user['_id'])
@@ -27,7 +56,9 @@ def login():
         return {"message": "username or password incorrect"}
     correct = pbkdf2_sha256.verify(user['password'], hash)
     if correct:
-        return {"message": "login success", "accessToken": "dummy", "refreshToken": "dummy"}, 200
+        accessToken = generate_access_token(user['_id'])
+        refreshToken = generate_refresh_token(user['_id'])
+        return {"message": "login success", "accessToken": accessToken, "refreshToken": refreshToken}, 200
     else:
         return {"message": "username or password incorrect"}
     
@@ -41,51 +72,44 @@ def getItems():
 
 @app.route("/api/v1/items", methods=['POST'])
 def createItem():
-    print(request.get_json()["_id"])
     payload = request.get_json()
-    item_id = item_table.insert_one(payload)
-    return {"message": "item created with id " + str(item_id.inserted_id)}, 200
+    newItem = item_table.insert_one(payload)
+    return {"message": "item created with id " + str(newItem.inserted_id)}, 200
 
 @app.route("/api/v1/items", methods=['PUT'])
 def updateItem():
-    print(request.get_json()["_id"])
     payload = request.get_json()
-    item_id = item_table.update_one({"_id": request.get_json()["_id"]}, {"$set": payload})
+    item_table.update_one({"_id": request.get_json()["_id"]}, {"$set": payload})
     return {"message": "item updated"}, 200
 
 @app.route("/api/v1/items/<item_id>", methods=['DELETE'])
 def deleteItem(item_id):
-    print(item_id)
-    item_id = item_table.delete_one({ '_id': item_id })
+    item_table.delete_one({ '_id': item_id })
     return {"message": "delete success"}, 200
 
 # menu API
-# @app.route("/api/v1/menu", methods=['GET'])
-# def getItems():
-#     records = item_table.find()
-#     json_data = dumps(list(records), indent=2)
-#     return json_data, 200
+@app.route("/api/v1/menu", methods=['GET'])
+def getMenus():
+    menus = menu_table.find()
+    json_data = dumps(list(menus), indent=2)
+    return json_data, 200
 
-# @app.route("/api/v1/menu", methods=['POST'])
-# def createItem():
-#     print(request.get_json()["_id"])
-#     payload = request.get_json()
-#     item_id = item_table.insert_one(payload)
-#     return {"message": "item created with id " + str(item_id.inserted_id)}, 200
-#     return {"message": request.get_json()}
+@app.route("/api/v1/menu", methods=['POST'])
+def createMenu():
+    payload = request.get_json()
+    newMenu = menu_table.insert_one(payload)
+    return {"message": "menu created with id " + str(newMenu.inserted_id)}, 200
 
-# @app.route("/api/v1/menu", methods=['PUT'])
-# def updateItem():
-#     print(request.get_json()["_id"])
-#     payload = request.get_json()
-#     item_id = item_table.update_one({"_id": request.get_json()["_id"]}, {"$set": payload})
-#     return {"message": "item updated"}, 200
+@app.route("/api/v1/menu", methods=['PUT'])
+def updateMenu():
+    payload = request.get_json()
+    menu_table.update_one({"_id": request.get_json()["_id"]}, {"$set": payload})
+    return {"message": "item updated"}, 200
 
-# @app.route("/api/v1/menu/<menu_id>", methods=['DELETE'])
-# def deleteItem(item_id):
-#     print(item_id)
-#     item_id = item_table.delete_one({ '_id': item_id })
-#     return {"message": "delete success"}, 200
+@app.route("/api/v1/menu/<menu_id>", methods=['DELETE'])
+def deleteMenu(menu_id):
+    menu_table.delete_one({ '_id': menu_id })
+    return {"message": "delete success"}, 200
 
 
 # @app.route("/records", methods=['GET', 'POST', 'PUT', 'DELETE'])
